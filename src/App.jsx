@@ -1,218 +1,175 @@
-import { useState, useEffect } from 'react'
-import './App.css'
+import { useState } from 'react'
 
-function maskID(id, isOwner){
-  if(!id) return '••••'
-  if(isOwner) return id
-  if(id.length===13) return '•••••••••' + id.slice(-4)
-  return '••••' + id.slice(-3)
-}
-function validateSAID(id) {
-  if (!/^\d{13}$/.test(id)) return { ok:false, msg:'SA ID must be 13 digits' }
-  const yy = parseInt(id.slice(0,2),10)
-  const mm = parseInt(id.slice(2,4),10)
-  const dd = parseInt(id.slice(4,6),10)
-  if (mm<1||mm>12||dd<1||dd>31) return { ok:false, msg:'Invalid birth date in ID' }
-  const now = new Date()
-  const fullYear = yy <= (now.getFullYear()%100)? 2000+yy : 1900+yy
-  const birth = new Date(fullYear, mm-1, dd)
-  let age = now.getFullYear() - birth.getFullYear()
-  const m = now.getMonth() - birth.getMonth()
-  if (m<0 || (m===0 && now.getDate() < birth.getDate())) age--
-  if (age<18) return { ok:false, msg:`Must be 18+ years. You are ${age}.` }
-  return { ok:true }
-}
+export default function App() {
+  // --- NAVIGATION: welcome -> portals -> app ---
+  const [page, setPage] = useState("welcome") // welcome, portals, citizen, admin
+  const [verifiedID, setVerifiedID] = useState(null)
+  const [idInput, setIdInput] = useState("")
+  const [idType, setIdType] = useState("ID")
 
-export default function App(){
-  const [flow, setFlow] = useState('welcome')
-  const [users, setUsers] = useState(()=>{ try{return JSON.parse(localStorage.getItem('cc_users')||'[]')}catch{return []}})
-  const [issues, setIssues] = useState(()=>{ try{return JSON.parse(localStorage.getItem('cc_issues')||'[]')}catch{return []}})
-  const [notifs, setNotifs] = useState(()=>{ try{return JSON.parse(localStorage.getItem('cc_notifs')||'[]')}catch{return []}})
-  const [currentUser, setCurrentUser] = useState(()=>{ try{return JSON.parse(localStorage.getItem('cc_current')||'null')}catch{return null}})
-  const [citForm, setCitForm] = useState({ name:'', idType:'SA ID', idNumber:'', phone:'', password:'' })
-  const [govForm, setGovForm] = useState({ name:'', workId:'', dept:'', email:'', password:'' })
-  const [loginForm, setLoginForm] = useState({ idNumber:'', password:'' })
-  const [issueForm, setIssueForm] = useState({ category:'', province:'Gauteng', area:'', town:'', ward:'', description:'' })
-  const [authTab, setAuthTab] = useState('login')
-  const [filterCat, setFilterCat] = useState('All')
-  const [showId, setShowId] = useState(false)
-
-  useEffect(()=>localStorage.setItem('cc_users', JSON.stringify(users)),[users])
-  useEffect(()=>localStorage.setItem('cc_issues', JSON.stringify(issues)),[issues])
-  useEffect(()=>localStorage.setItem('cc_notifs', JSON.stringify(notifs)),[notifs])
-  useEffect(()=>localStorage.setItem('cc_current', JSON.stringify(currentUser)),[currentUser])
-
-  const categories = ['Water & Sanitation','Roads & Transport','Electricity','Housing','Health','Safety & Security','Other']
-  const provinces = ['Eastern Cape','Free State','Gauteng','KwaZulu-Natal','Limpopo','Mpumalanga','Northern Cape','North West','Western Cape']
-  const depts = ['Water Affairs','Public Works','Energy','Human Settlements','Health','SAPS','Municipality']
-
-  const handleCitRegister = (e)=>{
-    e.preventDefault()
-    if(citForm.idType==='SA ID'){ const v=validateSAID(citForm.idNumber); if(!v.ok) return alert(v.msg) }
-    else if(!/^[A-Z0-9]{6,12}$/i.test(citForm.idNumber)) return alert('Passport 6-12 chars')
-    if(users.find(u=>u.idNumber===citForm.idNumber)) return alert('Already registered')
-    const newUser={...citForm, role:'citizen', id:Date.now()}
-    setUsers([...users,newUser]); setCurrentUser(newUser); setFlow('citizenDash')
+  const validateSAID = (id) => {
+    if (!/^\d{13}$/.test(id)) return false
+    const month = parseInt(id.substring(2,4))
+    const day = parseInt(id.substring(4,6))
+    if (month < 1 || month > 12 || day < 1 || day > 31) return false
+    let sum = 0
+    for (let i = 0; i < 12; i++) {
+      let digit = parseInt(id[i])
+      if (i % 2 === 0) sum += digit
+      else { let d = digit*2; sum += d>9?d-9:d }
+    }
+    return (10 - (sum % 10)) % 10 === parseInt(id[12])
   }
-  const handleGovRegister = (e)=>{
-    e.preventDefault()
-    if(!govForm.email.includes('@') ||!govForm.email.toLowerCase().includes('gov')) return alert('Use official gov email e.g. name@dept.gov.za')
-    if(users.find(u=>u.workId===govForm.workId)) return alert('Work ID exists')
-    const newUser={...govForm, role:'government', id:Date.now(), idNumber:govForm.workId}
-    setUsers([...users,newUser]); setCurrentUser(newUser); setFlow('govDash')
-  }
-  const handleLogin = (e, role)=>{
-    e.preventDefault()
-    const found=users.find(u=>u.idNumber===loginForm.idNumber && u.password===loginForm.password && u.role===role)
-    if(!found) return alert(`No ${role} account with that ID. Please register.`)
-    setCurrentUser(found); setFlow(role==='citizen'?'citizenDash':'govDash')
-  }
-  const submitIssue = (e)=>{
-    e.preventDefault()
-    if(!issueForm.category||!issueForm.description) return alert('Category & description required')
-    const newIssue={ id:Date.now(), citizenId: currentUser.idNumber, citizenName: currentUser.name,...issueForm, date:new Date().toLocaleString(), status:'Received', feedback:'' }
-    setIssues([newIssue,...issues])
-    setNotifs([{id:Date.now(), forRole:'government', msg:`New ${newIssue.category} in ${newIssue.town}`, issueId:newIssue.id, date:new Date().toLocaleTimeString()},...notifs])
-    setIssueForm({ category:'', province:'Gauteng', area:'', town:'', ward:'', description:'' })
-    alert('Complaint sent to Government!')
-  }
-  const updateStatus = (id, status)=>{
-    const fb = (status==='Fixed' || status==='Awaiting Response')? prompt(`Feedback for citizen (${status}):`)||'' : ''
-    setIssues(issues.map(i=> i.id===id? {...i, status, feedback:fb}:i))
-    const iss=issues.find(i=>i.id===id)
-    setNotifs([{id:Date.now(), forRole:'citizen', forUser:iss.citizenId, msg:`Your "${iss.category}" is now: ${status}${fb? ' - '+fb:''}`, issueId:id, date:new Date().toLocaleTimeString()},...notifs])
+  const validatePassport = (p) => /^[A-Z]\d{8}$/.test(p.toUpperCase()) || /^\d{9}$/.test(p)
+
+  const handleVerify = () => {
+    if (idType==="ID" ? validateSAID(idInput) : validatePassport(idInput)) {
+      setVerifiedID(idInput); setPage("citizen")
+    } else alert(idType==="ID" ? "❌ Invalid SA ID. Try 9901015000087" : "❌ Invalid Passport. Try A12345678")
   }
 
-  const stats = categories.map(cat=>({cat, count: issues.filter(i=>i.category===cat).length}))
-  const myIssues = currentUser? issues.filter(i=>i.citizenId===currentUser.idNumber):[]
-  const filteredIssues = filterCat==='All'? issues : issues.filter(i=>i.category===filterCat)
-  const myNotifs = currentUser? notifs.filter(n=> n.forRole===currentUser.role && (!n.forUser || n.forUser===currentUser.idNumber)) : []
+  // --- ISSUES LOGIC (from before) ---
+  const [issues, setIssues] = useState([
+    { id: 1, title: "Pothole on Main Road", location: "Centurion", status: "Reported", date: new Date().toLocaleString(), meeting: null, ownerID: "990101****" },
+    { id: 2, title: "Water Leak", location: "Pretoria", status: "In Progress", date: new Date().toLocaleString(), meeting: null, ownerID: "880202****" },
+  ])
+  const [title, setTitle] = useState("")
+  const [location, setLocation] = useState("")
+  const [showMeetingModal, setShowMeetingModal] = useState(null)
+  const [meetingDate, setMeetingDate] = useState("")
+  const [meetingTime, setMeetingTime] = useState("")
+  const [meetingPlace, setMeetingPlace] = useState("Municipal Office, Centurion")
+  const addIssue = () => { if(!title) return; setIssues([{id: issues.length+1, title, location, status: "Reported", date: new Date().toLocaleString(), meeting: null, ownerID: verifiedID}, ...issues]); setTitle(""); setLocation("") }
+  const updateStatus = (id,s) => setIssues(issues.map(i=>i.id===id?{...i, status:s}:i))
+  const scheduleMeeting = (id) => {
+    if(!meetingDate || !meetingTime) return alert("Pick date & time")
+    setIssues(issues.map(i=>i.id===id?{...i, meeting:{date: meetingDate, time: meetingTime, place: meetingPlace, status:"Pending"}, feedback:"Meeting scheduled"}:i))
+    setShowMeetingModal(null)
+  }
 
-  if(flow==='welcome') return (
-    <main className="welcome-screen" role="main" aria-label="Welcome page">
-      <a href="#main" className="skip-link">Skip to content</a>
-      <section className="welcome-panel" id="main" aria-labelledby="welcome-title">
-        <span className="welcome-brand">ZA • UBUNTU</span>
-        <h1 id="welcome-title">Your Voice Matters</h1>
-        <p className="welcome-brand">Civic-Connect</p>
-        <p className="welcome-copy">Every street, every village, every ward. From Musina to Cape Town, we listen and help communities thrive. Ubuntu — I am because we are.</p>
-        <button className="welcome-arrow" onClick={()=>setFlow('choosePortal')} aria-label="Enter Civic-Connect, choose citizen or government portal" style={{border:'none'}}>→</button>
-        <p className="welcome-copy" style={{fontWeight:800, color:'#0a3d2e'}}>Press icon to start</p>
-        <p className="welcome-footer">Free • Safe • Confidential IDs • WCAG Accessible • 9 Provinces 🇿🇦</p>
-      </section>
-    </main>
-  )
-
-  if(flow==='choosePortal') return (
-    <main style={{minHeight:'100vh', background:'#f8faf9', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}} role="main">
-      <section style={{maxWidth:'720px', width:'100%'}}>
-        <button onClick={()=>setFlow('welcome')} style={{background:'none', border:'1px solid #ddd', padding:'8px 14px', borderRadius:'8px', cursor:'pointer'}}>← Back</button>
-        <h1 style={{textAlign:'center', color:'#0a3d2e'}}>Choose Your Portal</h1>
-        <p style={{textAlign:'center', color:'#666'}}>Separate secure access - work together</p>
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px', marginTop:'24px'}}>
-          <button onClick={()=>{setFlow('citizenAuth'); setAuthTab('login')}} style={{textAlign:'left', background:'white', border:'3px solid #007A4D', borderRadius:'20px', padding:'24px', cursor:'pointer'}}>
-            <h2 style={{margin:'0 0 8px', color:'#0a3d2e'}}>🧑 Citizen Portal</h2>
-            <ul style={{fontSize:'14px', color:'#333', paddingLeft:'18px', lineHeight:'1.6'}}><li>SA ID must be 18+</li><li>Passport for foreigners</li><li>ID confidential - masked</li><li>Report + notifications</li></ul>
-            <p style={{fontWeight:'bold', color:'#007A4D', marginTop:'16px'}}>Enter Citizen →</p>
-          </button>
-          <button onClick={()=>{setFlow('govAuth'); setAuthTab('login')}} style={{textAlign:'left', background:'white', border:'3px solid #1565c0', borderRadius:'20px', padding:'24px', cursor:'pointer'}}>
-            <h2 style={{margin:'0 0 8px', color:'#0d47a1'}}>🏛️ Government Portal</h2>
-            <ul style={{fontSize:'14px', color:'#333', paddingLeft:'18px', lineHeight:'1.6'}}><li>Work ID + Dept</li><li>gov.za email required</li><li>Cannot access citizen</li><li>Manage complaints</li></ul>
-            <p style={{fontWeight:'bold', color:'#1565c0', marginTop:'16px'}}>Enter Government →</p>
-          </button>
-        </div>
-      </section>
-    </main>
-  )
-
-  if(flow==='citizenAuth' || flow==='govAuth'){
-    const isCit = flow==='citizenAuth'
+  // --- 1. WELCOMING PAGE ---
+  if (page === "welcome") {
     return (
-      <main style={{minHeight:'100vh', background:'#f8faf9', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}} role="main">
-        <section style={{background:'white', width:'100%', maxWidth:'440px', padding:'28px', borderRadius:'20px', boxShadow:'0 10px 40px rgba(0,0,0,0.08)'}}>
-          <button onClick={()=>setFlow('choosePortal')} style={{border:'none', background:'none', cursor:'pointer', fontWeight:'bold'}}>← Choose Portal</button>
-          <h2 style={{color: isCit? '#0a3d2e' : '#0d47a1', marginTop:'12px'}}>{isCit? 'Citizen Portal' : 'Government Portal'}</h2>
-          <div style={{display:'flex', gap:'8px', margin:'16px 0'}}>
-            <button onClick={()=>setAuthTab('login')} style={{flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #ddd', background: authTab==='login'? '#0a3d2e':'white', color: authTab==='login'?'white':'#333', cursor:'pointer', fontWeight:'bold'}}>Login</button>
-            <button onClick={()=>setAuthTab('register')} style={{flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #ddd', background: authTab==='register'? '#0a3d2e':'white', color: authTab==='register'?'white':'#333', cursor:'pointer', fontWeight:'bold'}}>Register</button>
-          </div>
-          {authTab==='login'? (
-            <form onSubmit={(e)=>handleLogin(e, isCit?'citizen':'government')}>
-              <input placeholder={isCit? 'SA ID / Passport' : 'Work ID'} value={loginForm.idNumber} onChange={e=>setLoginForm({...loginForm, idNumber:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <input type="password" placeholder="Password" value={loginForm.password} onChange={e=>setLoginForm({...loginForm, password:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <button type="submit" style={{width:'100%', padding:'14px', background: isCit? '#007A4D':'#1565c0', color:'white', border:'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer'}}>Login →</button>
-            </form>
-          ) : isCit? (
-            <form onSubmit={handleCitRegister}>
-              <input placeholder="Full Name" value={citForm.name} onChange={e=>setCitForm({...citForm, name:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
-                <select value={citForm.idType} onChange={e=>setCitForm({...citForm, idType:e.target.value})} style={{padding:'12px', borderRadius:'10px', border:'1px solid #ddd', flex:1}}><option>SA ID</option><option>Passport</option></select>
-                <input placeholder={citForm.idType==='SA ID'? '13-digit SA ID' : 'Passport'} value={citForm.idNumber} onChange={e=>setCitForm({...citForm, idNumber:e.target.value})} style={{padding:'12px', borderRadius:'10px', border:'1px solid #ddd', flex:2}} required />
-              </div>
-              <p style={{fontSize:'11px', color:'#666', margin:'-6px 0 10px'}}>ID confidential, masked to gov. Must be 18+.</p>
-              <input type="password" placeholder="Create Password" value={citForm.password} onChange={e=>setCitForm({...citForm, password:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <button type="submit" style={{width:'100%', padding:'14px', background:'#007A4D', color:'white', border:'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer'}}>Register →</button>
-            </form>
-          ) : (
-            <form onSubmit={handleGovRegister}>
-              <input placeholder="Full Name" value={govForm.name} onChange={e=>setGovForm({...govForm, name:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <input placeholder="Work ID" value={govForm.workId} onChange={e=>setGovForm({...govForm, workId:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <select value={govForm.dept} onChange={e=>setGovForm({...govForm, dept:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required><option value="">Select Dept</option>{depts.map(d=><option key={d}>{d}</option>)}</select>
-              <input placeholder="Gov Email @gov.za" value={govForm.email} onChange={e=>setGovForm({...govForm, email:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <input type="password" placeholder="Password" value={govForm.password} onChange={e=>setGovForm({...govForm, password:e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'10px', border:'1px solid #ddd', marginBottom:'10px'}} required />
-              <button type="submit" style={{width:'100%', padding:'14px', background:'#1565c0', color:'white', border:'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer'}}>Register →</button>
-            </form>
-          )}
-        </section>
-      </main>
+      <div style={{fontFamily: 'system-ui', minHeight: '100vh', background: 'linear-gradient(135deg, #052e16, #16a34a)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', color: 'white', textAlign: 'center'}}>
+        <div>
+          <div style={{fontSize: '80px', marginBottom: '20px', animation: 'bounce 2s infinite'}}>🇿🇦</div>
+          <h1 style={{fontSize: '42px', fontWeight: '900', lineHeight: '1.1'}}>ZA • UBUNTU<br/>Civic-Connect</h1>
+          <p style={{marginTop: '16px', fontSize: '18px', opacity: 0.9, maxWidth: '400px', margin: '16px auto'}}>Where Citizens and Government build South Africa together. Ubuntu — I am because we are.</p>
+          
+          {/* THE ICON TO PRESS */}
+          <button onClick={()=>setPage("portals")} style={{marginTop: '32px', background: 'white', color: '#16a34a', border: 'none', width: '100px', height: '100px', borderRadius: '50%', fontSize: '48px', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontWeight: '900'}}>
+            →
+          </button>
+          <p style={{marginTop: '16px', fontSize: '13px', letterSpacing: '2px', opacity: 0.8}}>TAP ICON TO ENTER</p>
+          <p style={{marginTop: '40px', fontSize: '11px', opacity: 0.6}}>Mechaflow Dynamics • Centurion, ZA • {new Date().toLocaleDateString()}</p>
+        </div>
+      </div>
     )
   }
 
-  if(flow==='citizenDash') return (
-    <div style={{minHeight:'100vh', background:'#f5f9f6'}}>
-      <header style={{background:'#0a3d2e', color:'white', padding:'14px 20px', display:'flex', justifyContent:'space-between'}}>
-        <b>Citizen 🇿🇦 {currentUser?.name} | ID: {showId? currentUser?.idNumber : maskID(currentUser?.idNumber, false)} <button onClick={()=>setShowId(!showId)} style={{background:'none', border:'none', color:'white', cursor:'pointer'}}>{showId? '🙈':'👁️'}</button></b>
-        <div>🔔{myNotifs.length} <button onClick={()=>{setCurrentUser(null); setFlow('welcome')}} style={{marginLeft:'10px', background:'white', color:'#0a3d2e', border:'none', padding:'6px 12px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold'}}>Logout</button></div>
-      </header>
-      <main style={{maxWidth:'1100px', margin:'0 auto', padding:'20px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px'}}>
-        <section style={{background:'white', padding:'20px', borderRadius:'16px'}}>
-          <h2>📢 Report Issue</h2>
-          <form onSubmit={submitIssue} style={{display:'flex', flexDirection:'column', gap:'10px', marginTop:'12px'}}>
-            <select value={issueForm.category} onChange={e=>setIssueForm({...issueForm, category:e.target.value})} style={{padding:'11px', borderRadius:'8px', border:'1px solid #ddd'}} required><option value="">Category</option>{categories.map(c=><option key={c}>{c}</option>)}</select>
-            <select value={issueForm.province} onChange={e=>setIssueForm({...issueForm, province:e.target.value})} style={{padding:'11px', borderRadius:'8px', border:'1px solid #ddd'}}>{provinces.map(p=><option key={p}>{p}</option>)}</select>
-            <input placeholder="Area" value={issueForm.area} onChange={e=>setIssueForm({...issueForm, area:e.target.value})} style={{padding:'11px', borderRadius:'8px', border:'1px solid #ddd'}} />
-            <input placeholder="Town/City" value={issueForm.town} onChange={e=>setIssueForm({...issueForm, town:e.target.value})} style={{padding:'11px', borderRadius:'8px', border:'1px solid #ddd'}} required />
-            <textarea placeholder="Description" value={issueForm.description} onChange={e=>setIssueForm({...issueForm, description:e.target.value})} rows={4} style={{padding:'11px', borderRadius:'8px', border:'1px solid #ddd'}} required />
-            <button type="submit" style={{padding:'13px', background:'#007A4D', color:'white', border:'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer'}}>Send to Government →</button>
-          </form>
-        </section>
-        <section>
-          <div style={{background:'white', padding:'16px', borderRadius:'16px', marginBottom:'16px'}}><h3>🔔 Notifications</h3>{myNotifs.map(n=><div key={n.id} style={{background:'#e8f5e9', padding:'8px 10px', borderRadius:'8px', marginTop:'6px', fontSize:'13px'}}>{n.msg}</div>)}</div>
-          <div style={{background:'white', padding:'16px', borderRadius:'16px', marginBottom:'16px'}}><h3>📊 My Stats</h3>{myIssues.length===0? 'No complaints': categories.map(c=>{ const cnt=myIssues.filter(i=>i.category===c).length; return cnt>0? <div key={c} style={{display:'flex', justifyContent:'space-between', fontSize:'14px', padding:'4px 0'}}><span>{c}</span><b>{cnt}</b></div>:null })}</div>
-          <div style={{background:'white', padding:'16px', borderRadius:'16px'}}><h3>My Complaints</h3>{myIssues.map(i=><div key={i.id} style={{borderLeft:'4px solid #007A4D', background:'#fafafa', padding:'10px', borderRadius:'8px', marginTop:'8px'}}><b>{i.category}</b> - {i.town} <small style={{float:'right'}}>{i.status}</small><p style={{fontSize:'13px'}}>{i.description}</p>{i.feedback && <p style={{fontSize:'12px', background:'#e3f2fd', padding:'6px', borderRadius:'6px'}}><b>Gov:</b> {i.feedback}</p>}</div>)}</div>
-        </section>
-      </main>
-    </div>
-  )
+  // --- 2. PORTALS PAGE (Government or Citizen) ---
+  if (page === "portals") {
+    return (
+      <div style={{fontFamily: 'system-ui', minHeight: '100vh', background: '#f8fafc', padding: '20px'}}>
+        <div style={{maxWidth: '900px', margin: '0 auto'}}>
+          <button onClick={()=>setPage("welcome")} style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', marginBottom: '20px'}}>← Back to Welcome</button>
+          <h2 style={{fontSize: '32px', fontWeight: '900', textAlign: 'center', marginTop: '20px'}}>Choose Your Portal</h2>
+          <p style={{textAlign: 'center', color: '#666', marginTop: '8px'}}>Select how you want to continue</p>
+          
+          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '32px'}}>
+            {/* CITIZEN PORTAL */}
+            <button onClick={()=>setPage("verify")} style={{background: 'white', border: '2px solid #16a34a', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left'}}>
+              <div style={{fontSize: '48px'}}>👤</div>
+              <h3 style={{fontSize: '20px', fontWeight: '800', marginTop: '12px'}}>Citizen Portal</h3>
+              <p style={{fontSize: '13px', color: '#555', marginTop: '8px'}}>Report issues, track status, meet government. Requires SA ID / Passport verification.</p>
+              <div style={{marginTop: '16px', background: '#16a34a', color: 'white', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: '700'}}>Enter as Citizen →</div>
+              <p style={{fontSize: '11px', color: '#666', marginTop: '8px'}}>📅 Date & Time auto-added • 🔒 ID Verified</p>
+            </button>
 
+            {/* GOVERNMENT PORTAL */}
+            <button onClick={()=>setPage("admin")} style={{background: '#111', border: '2px solid #111', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left', color: 'white'}}>
+              <div style={{fontSize: '48px'}}>🏛️</div>
+              <h3 style={{fontSize: '20px', fontWeight: '800', marginTop: '12px'}}>Government Portal</h3>
+              <p style={{fontSize: '13px', color: '#aaa', marginTop: '8px'}}>Manage all reports, update status, schedule meetings with citizens.</p>
+              <div style={{marginTop: '16px', background: 'white', color: 'black', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: '700'}}>Enter as Government →</div>
+              <p style={{fontSize: '11px', color: '#888', marginTop: '8px'}}>📊 Admin Dashboard • 📅 Meeting Scheduler</p>
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // --- 3A. VERIFY ID PAGE ---
+  if (page === "verify") {
+    return (
+      <div style={{fontFamily: 'system-ui', background: '#f8fafc', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+        <div style={{background: 'white', padding: '32px', borderRadius: '16px', maxWidth: '420px', width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'}}>
+          <button onClick={()=>setPage("portals")} style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', marginBottom: '16px'}}>← Portals</button>
+          <h1 style={{fontWeight: '900', fontSize: '20px', textAlign: 'center'}}>Citizen Verification</h1>
+          <div style={{marginTop: '16px', display: 'flex', gap: '8px'}}>
+            <button onClick={()=>setIdType("ID")} style={{flex: 1, padding: '10px', borderRadius: '8px', border: idType==="ID"?'2px solid #16a34a':'1px solid #ddd', background: idType==="ID"?'#dcfce7':'white', fontWeight: '700'}}>SA ID</button>
+            <button onClick={()=>setIdType("Passport")} style={{flex: 1, padding: '10px', borderRadius: '8px', border: idType==="Passport"?'2px solid #16a34a':'1px solid #ddd', background: idType==="Passport"?'#dcfce7':'white', fontWeight: '700'}}>Passport</button>
+          </div>
+          <input value={idInput} onChange={e=>setIdInput(e.target.value)} placeholder={idType==="ID"?"13-digit e.g. 9901015000087":"A12345678"} style={{width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', marginTop: '16px'}} />
+          <button onClick={handleVerify} style={{width: '100%', background: '#16a34a', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: '800', marginTop: '16px', cursor: 'pointer'}}>Verify & Continue →</button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- 3B. MAIN APP (Citizen or Admin) ---
+  const isAdmin = page === "admin"
   return (
-    <div style={{minHeight:'100vh', background:'#f5f7fb'}}>
-      <header style={{background:'#0d47a1', color:'white', padding:'14px 20px', display:'flex', justifyContent:'space-between'}}><b>Government 🏛️ {currentUser?.name} - {currentUser?.dept}</b><button onClick={()=>{setCurrentUser(null); setFlow('welcome')}} style={{background:'white', color:'#0d47a1', border:'none', padding:'6px 12px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold'}}>Logout</button></header>
-      <main style={{maxWidth:'1200px', margin:'0 auto', padding:'20px'}}>
-        <section style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px,1fr))', gap:'12px', marginBottom:'20px'}}>{stats.map(s=><div key={s.cat} style={{background:'white', padding:'12px', borderRadius:'12px', textAlign:'center'}}><b style={{fontSize:'20px'}}>{s.count}</b><br/><small>{s.cat}</small></div>)}</section>
-        <section style={{background:'white', padding:'16px', borderRadius:'16px'}}>
-          <h2>All Complaints - IDs masked for privacy</h2>
-          <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}}><option>All</option>{categories.map(c=><option key={c}>{c}</option>)}</select>
-          {filteredIssues.map(issue=>(
-            <div key={issue.id} style={{border:'1px solid #eee', padding:'14px', borderRadius:'12px', marginTop:'12px'}}>
-              <b>{issue.category} • {issue.province} - {issue.status}</b>
-              <p style={{fontSize:'13px'}}><b>{issue.citizenName}</b> | ID: {maskID(issue.citizenId,false)} (confidential) | {issue.town}, {issue.area}</p>
-              <p style={{fontSize:'13px'}}>{issue.description}</p>
-              <div style={{display:'flex', gap:'8px', marginTop:'10px', flexWrap:'wrap'}}>{['Received','In Progress','Awaiting Response','Fixed'].map(st=><button key={st} onClick={()=>updateStatus(issue.id, st)} style={{padding:'6px 10px', borderRadius:'8px', border:'1px solid #ddd', cursor:'pointer', background: issue.status===st? '#0d47a1':'white', color: issue.status===st? 'white':'#333'}}>{st}</button>)}</div>
-              {issue.feedback && <p style={{fontSize:'12px', background:'#f1f8e9', padding:'6px', borderRadius:'6px', marginTop:'8px'}}>Feedback: {issue.feedback}</p>}
+    <div style={{fontFamily: 'system-ui', background: '#f8fafc', minHeight: '100vh'}}>
+      <div style={{background: 'white', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+        <span style={{fontWeight: '800'}}>ZA • UBUNTU <span style={{color: '#16a34a'}}>Civic-Connect</span> {isAdmin ? '(GOV)' : '(Citizen)'}</span>
+        <div style={{display: 'flex', gap: '8px'}}>
+          <button onClick={()=>setPage("portals")} style={{background: '#eee', border: 'none', padding: '8px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px'}}>Portals</button>
+          <button onClick={()=>setPage("welcome")} style={{background: '#111', color: 'white', padding: '8px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontSize: '12px'}}>Home</button>
+        </div>
+      </div>
+
+      <main style={{maxWidth: '900px', margin: '0 auto', padding: '24px'}}>
+        <div style={{background: isAdmin ? '#111' : 'linear-gradient(135deg, #16a34a, #15803d)', color: 'white', padding: '24px', borderRadius: '16px', marginBottom: '20px'}}>
+          <h2 style={{fontSize: '28px', fontWeight: '900'}}>{isAdmin ? 'Government Dashboard' : 'Citizen Dashboard'}</h2>
+          <p style={{fontSize: '12px', marginTop: '6px', opacity: 0.8}}>📅 {new Date().toLocaleString()} {verifiedID ? `• ID: ${verifiedID.substring(0,6)}****` : ''}</p>
+        </div>
+
+        {!isAdmin && (
+          <div style={{background: 'white', padding: '16px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: '8px'}}>
+            <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Issue" style={{flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd'}} />
+            <input value={location} onChange={e=>setLocation(e.target.value)} placeholder="Location" style={{padding: '10px', borderRadius: '8px', border: '1px solid #ddd'}} />
+            <button onClick={addIssue} style={{background: '#16a34a', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700'}}>Report</button>
+          </div>
+        )}
+
+        <div style={{display: 'grid', gap: '12px'}}>
+          {issues.map(issue=>(
+            <div key={issue.id} style={{background: 'white', padding: '14px', borderRadius: '10px', borderLeft: `5px solid ${issue.status==='Fixed'?'#16a34a':issue.status==='In Progress'?'#f59e0b':'#3b82f6'}`}}>
+              <div style={{display: 'flex', justifyContent: 'space-between'}}><b>{issue.title}</b><span style={{fontSize: '11px', background: '#eee', padding: '4px 8px', borderRadius: '10px'}}>{issue.status}</span></div>
+              <p style={{fontSize: '12px', color: '#555'}}>📍{issue.location} • {issue.date}</p>
+              <div style={{display: 'flex', gap: '4px', marginTop: '8px', fontSize: '10px'}}><span style={{background: '#111', color: 'white', padding: '3px 6px', borderRadius: '4px'}}>Reported</span>→<span style={{background: issue.status!=='Reported'?'#111':'#eee', color: issue.status!=='Reported'?'white':'#666', padding: '3px 6px', borderRadius: '4px'}}>In Progress</span>→<span style={{background: issue.status==='Fixed'?'#16a34a':'#eee', color: issue.status==='Fixed'?'white':'#666', padding: '3px 6px', borderRadius: '4px'}}>Fixed</span></div>
+              {issue.meeting && <div style={{marginTop: '8px', background: '#fffbeb', padding: '8px', borderRadius: '8px', fontSize: '12px', border: '1px dashed #f59e0b'}}>🏛️ Meeting: {issue.meeting.date} {issue.meeting.time} @ {issue.meeting.place}</div>}
+              {isAdmin && <button onClick={()=>setShowMeetingModal(issue.id)} style={{marginTop: '8px', fontSize: '12px', background: '#111', color: 'white', padding: '6px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer'}}>📅 Schedule Meeting</button>}
             </div>
           ))}
-        </section>
+        </div>
+
+        {showMeetingModal && (
+          <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+            <div style={{background: 'white', padding: '20px', borderRadius: '12px', width: '100%', maxWidth: '350px'}}>
+              <h3 style={{fontWeight: '800'}}>Schedule Meeting</h3>
+              <input type="date" value={meetingDate} onChange={e=>setMeetingDate(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '10px'}} />
+              <input type="time" value={meetingTime} onChange={e=>setMeetingTime(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '8px'}} />
+              <input value={meetingPlace} onChange={e=>setMeetingPlace(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '8px'}} />
+              <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
+                <button onClick={()=>scheduleMeeting(showMeetingModal)} style={{flex: 1, background: '#16a34a', color: 'white', padding: '10px', borderRadius: '8px', border: 'none'}}>Send</button>
+                <button onClick={()=>setShowMeetingModal(null)} style={{flex: 1, background: '#eee', padding: '10px', borderRadius: '8px', border: 'none'}}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )
