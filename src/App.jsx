@@ -54,13 +54,13 @@ export default function App(){
   async function submitReport(){
     const hid=await hashID(idNum)
     await supabase.from('reports').insert({user_hash:hid,type:form.type,district:form.district,description:form.desc,lat:form.lat||null,lng:form.lng||null,status:'pending'})
-    await supabase.from('notifications').insert({message:`NEW ${form.type} in ${form.district}: ${form.desc.slice(0,60)}`})
+    await supabase.from('notifications').insert({message:`NEW ${form.type} in ${form.district}: ${(form.desc || '').slice(0,60)}`})
     alert('Report Submitted!'); setPage('citizen'); fetchReports(); fetchNotifs()
   }
 
   async function updateStatus(id,status){
     await supabase.from('reports').update({status}).eq('id',id)
-    await supabase.from('notifications').insert({message:`Report #${id.slice(0,6)} marked ${status.toUpperCase()} by Gov`})
+    await supabase.from('notifications').insert({message:`Report #${(id || '').slice(0,6) || 'Report'} marked ${(status || '').toUpperCase()} by Gov`})
     fetchReports(); fetchNotifs()
   }
 
@@ -68,7 +68,7 @@ export default function App(){
     if(!meetDate ||!meetLoc) return alert('Enter date and location')
     const report=reports.find(r=>r.id===meetForm)
     await supabase.from('meetings').insert({report_id:meetForm,user_hash:report.user_hash,date:meetDate,location:meetLoc})
-    await supabase.from('notifications').insert({message:`MEETING scheduled ${meetDate} at ${meetLoc} for ${report.type}`})
+    await supabase.from('notifications').insert({message:`MEETING scheduled ${meetDate} at ${meetLoc} for ${report?.type || 'issue'}`})
     setMeetForm(null); setMeetDate(''); setMeetLoc(''); fetchMeetings(); fetchNotifs(); alert('Meeting Scheduled!')
   }
 
@@ -126,14 +126,14 @@ export default function App(){
     <div style={{minHeight:'100vh',background:'#f5f5dc',padding:15,fontFamily:'sans-serif'}}>
       <div style={{maxWidth:1000,margin:'0 auto'}}>
         <div style={{background:'#000',color:'#ffd700',padding:12,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <b>🇿🇦 {user.role.toUpperCase()} • {user.id_hash.slice(0,8)} • {user.role==='citizen'?'8001015009087':email}</b>
+          <b>🇿🇦 {(user?.role || '').toUpperCase()} • {(user?.id_hash || '').slice(0,8)} • {user?.role==='citizen'?'8001015009087':email}</b>
           <div><button onClick={()=>setShowStats(!showStats)} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold'}}>📊 STATS</button><button onClick={()=>{setUser(null);setPage('landing')}} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8}}>Logout</button></div>
         </div>
 
         <div style={{background:'#000',color:'#fff',padding:10,borderRadius:10,marginTop:12,border:'2px solid #ffd700'}}>
           <b>🔔 NOTIFICATIONS:</b>
           <div style={{maxHeight:80,overflowY:'auto',marginTop:6}}>
-            {notifs.length===0?<small>No notifications</small>:notifs.map(n=><div key={n.id} style={{fontSize:12,borderBottom:'1px solid #333',padding:'3px 0'}}>• {n.message} — {new Date(n.created_at).toLocaleString()}</div>)}
+            {notifs.length===0?<small>No notifications</small>:notifs.map(n=><div key={n.id} style={{fontSize:12,borderBottom:'1px solid #333',padding:'3px 0'}}>• {n.message} — {n.created_at? new Date(n.created_at).toLocaleString() : ''}</div>)}
           </div>
         </div>
 
@@ -142,7 +142,7 @@ export default function App(){
         {user.role==='citizen' && myMeetings.length>0 && (
           <div style={{background:'#e3f2fd',border:'2px solid #2196f3',borderRadius:12,padding:12,marginTop:12}}>
             <b>📅 MEETINGS SCHEDULED FOR YOU:</b>
-            {myMeetings.map(m=><div key={m.id} style={{background:'#fff',padding:8,borderRadius:8,marginTop:6}}>📍 {m.location} — 📅 {m.date} — Report {m.report_id.slice(0,6)}</div>)}
+            {myMeetings.map(m=><div key={m.id} style={{background:'#fff',padding:8,borderRadius:8,marginTop:6}}>📍 {m.location} — 📅 {m.date} — Report {(m.report_id || '').slice(0,6)}</div>)}
           </div>
         )}
 
@@ -170,9 +170,9 @@ export default function App(){
         <div style={{marginTop:15,display:'grid',gap:12}}>
           {filtered.map(r=>(
             <div key={r.id} style={{background:'#fff',padding:15,borderRadius:12,borderLeft:`8px solid ${r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800'}`}}>
-              <div style={{display:'flex',justifyContent:'space-between'}}><b>{r.type} • {r.district}</b><span style={{padding:'4px 10px',borderRadius:20,fontSize:12,background:r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800',color:'#fff'}}>{r.status.toUpperCase()}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between'}}><b>{r.type} • {r.district}</b><span style={{padding:'4px 10px',borderRadius:20,fontSize:12,background:r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800',color:'#fff'}}>{(r.status || '').toUpperCase()}</span></div>
               <p style={{margin:'8px 0'}}>{r.description}</p>
-              <small>{new Date(r.created_at).toLocaleString()} • #{r.id.slice(0,6)}</small>
+              <small>{r.created_at? new Date(r.created_at).toLocaleString() : ''} • #{(r.id || '').slice(0,6)}</small>
               {user.role==='gov' && (
                 <div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>
                   <button onClick={()=>updateStatus(r.id,'in_progress')} style={{padding:'6px 12px',background:'#2196f3',color:'#fff',border:0,borderRadius:6}}>⏳ IN PROGRESS</button>
