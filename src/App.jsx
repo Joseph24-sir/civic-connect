@@ -1,176 +1,195 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase, hashID } from './supabase.js'
 
-export default function App() {
-  // --- NAVIGATION: welcome -> portals -> app ---
-  const [page, setPage] = useState("welcome") // welcome, portals, citizen, admin
-  const [verifiedID, setVerifiedID] = useState(null)
-  const [idInput, setIdInput] = useState("")
-  const [idType, setIdType] = useState("ID")
+export default function App(){
+  const [page,setPage]=useState('landing')
+  const [user,setUser]=useState(null)
+  const [idNum,setIdNum]=useState('')
+  const [email,setEmail]=useState('')
+  const [pass,setPass]=useState('')
+  const [reports,setReports]=useState([])
+  const [notifs,setNotifs]=useState([])
+  const [meetings,setMeetings]=useState([])
+  const [filter,setFilter]=useState('all')
+  const [showStats,setShowStats]=useState(false)
+  const [meetForm,setMeetForm]=useState(null)
+  const [meetDate,setMeetDate]=useState('')
+  const [meetLoc,setMeetLoc]=useState('')
+  const [form,setForm]=useState({type:'Pothole',district:'Capricorn',desc:'',lat:'',lng:''})
 
-  const validateSAID = (id) => {
-    if (!/^\d{13}$/.test(id)) return false
-    const month = parseInt(id.substring(2,4))
-    const day = parseInt(id.substring(4,6))
-    if (month < 1 || month > 12 || day < 1 || day > 31) return false
-    let sum = 0
-    for (let i = 0; i < 12; i++) {
-      let digit = parseInt(id[i])
-      if (i % 2 === 0) sum += digit
-      else { let d = digit*2; sum += d>9?d-9:d }
+  useEffect(()=>{
+    if(user){ fetchReports(); fetchNotifs(); fetchMeetings(); }
+  },[user])
+
+  async function fetchReports(){
+    const {data}=await supabase.from('reports').select('*').order('created_at',{ascending:false})
+    setReports(data||[])
+  }
+  async function fetchNotifs(){
+    const {data}=await supabase.from('notifications').select('*').order('created_at',{ascending:false}).limit(10)
+    setNotifs(data||[])
+  }
+  async function fetchMeetings(){
+    const {data}=await supabase.from('meetings').select('*').order('created_at',{ascending:false})
+    setMeetings(data||[])
+  }
+
+  async function loginGov(){
+    const hid=await hashID(idNum)
+    const {data}=await supabase.from('profiles').select('*').eq('id_hash',hid).single()
+    if(!data || data.email!==email || data.gov_code!==pass) return alert('Invalid Gov login')
+    setUser({...data,role:'gov'}); setPage('gov')
+  }
+  async function loginCit(){
+    const hid=await hashID(idNum)
+    let {data}=await supabase.from('profiles').select('*').eq('id_hash',hid).single()
+    if(!data){
+      await supabase.from('profiles').insert({id_hash:hid,email:'citizen@local',gov_code:'',role:'citizen'})
+      const r=await supabase.from('profiles').select('*').eq('id_hash',hid).single()
+      data=r.data
     }
-    return (10 - (sum % 10)) % 10 === parseInt(id[12])
-  }
-  const validatePassport = (p) => /^[A-Z]\d{8}$/.test(p.toUpperCase()) || /^\d{9}$/.test(p)
-
-  const handleVerify = () => {
-    if (idType==="ID" ? validateSAID(idInput) : validatePassport(idInput)) {
-      setVerifiedID(idInput); setPage("citizen")
-    } else alert(idType==="ID" ? "❌ Invalid SA ID. Try 9901015000087" : "❌ Invalid Passport. Try A12345678")
+    setUser({...data,role:'citizen'}); setPage('citizen')
   }
 
-  // --- ISSUES LOGIC (from before) ---
-  const [issues, setIssues] = useState([
-    { id: 1, title: "Pothole on Main Road", location: "Centurion", status: "Reported", date: new Date().toLocaleString(), meeting: null, ownerID: "990101****" },
-    { id: 2, title: "Water Leak", location: "Pretoria", status: "In Progress", date: new Date().toLocaleString(), meeting: null, ownerID: "880202****" },
-  ])
-  const [title, setTitle] = useState("")
-  const [location, setLocation] = useState("")
-  const [showMeetingModal, setShowMeetingModal] = useState(null)
-  const [meetingDate, setMeetingDate] = useState("")
-  const [meetingTime, setMeetingTime] = useState("")
-  const [meetingPlace, setMeetingPlace] = useState("Municipal Office, Centurion")
-  const addIssue = () => { if(!title) return; setIssues([{id: issues.length+1, title, location, status: "Reported", date: new Date().toLocaleString(), meeting: null, ownerID: verifiedID}, ...issues]); setTitle(""); setLocation("") }
-  const updateStatus = (id,s) => setIssues(issues.map(i=>i.id===id?{...i, status:s}:i))
-  const scheduleMeeting = (id) => {
-    if(!meetingDate || !meetingTime) return alert("Pick date & time")
-    setIssues(issues.map(i=>i.id===id?{...i, meeting:{date: meetingDate, time: meetingTime, place: meetingPlace, status:"Pending"}, feedback:"Meeting scheduled"}:i))
-    setShowMeetingModal(null)
+  async function submitReport(){
+    const hid=await hashID(idNum)
+    await supabase.from('reports').insert({user_hash:hid,type:form.type,district:form.district,description:form.desc,lat:form.lat||null,lng:form.lng||null,status:'pending'})
+    await supabase.from('notifications').insert({message:`NEW ${form.type} in ${form.district}: ${form.desc.slice(0,60)}`})
+    alert('Report Submitted!'); setPage('citizen'); fetchReports(); fetchNotifs()
   }
 
-  // --- 1. WELCOMING PAGE ---
-  if (page === "welcome") {
+  async function updateStatus(id,status){
+    await supabase.from('reports').update({status}).eq('id',id)
+    await supabase.from('notifications').insert({message:`Report #${id.slice(0,6)} marked ${status.toUpperCase()} by Gov`})
+    fetchReports(); fetchNotifs()
+  }
+
+  async function scheduleMeeting(){
+    if(!meetDate ||!meetLoc) return alert('Enter date and location')
+    const report=reports.find(r=>r.id===meetForm)
+    await supabase.from('meetings').insert({report_id:meetForm,user_hash:report.user_hash,date:meetDate,location:meetLoc})
+    await supabase.from('notifications').insert({message:`MEETING scheduled ${meetDate} at ${meetLoc} for ${report.type}`})
+    setMeetForm(null); setMeetDate(''); setMeetLoc(''); fetchMeetings(); fetchNotifs(); alert('Meeting Scheduled!')
+  }
+
+  const myReports=user?.role==='citizen'?reports.filter(r=>r.user_hash===user.id_hash):reports
+  const myMeetings=user?.role==='citizen'?meetings.filter(m=>m.user_hash===user.id_hash):meetings
+  const filtered=filter==='all'?myReports:myReports.filter(r=>r.status===filter || r.district===filter)
+
+  if(page==='landing') return (
+    <div style={{minHeight:'100vh',background:'#f5f5dc',padding:20,fontFamily:'sans-serif'}}>
+      <div style={{maxWidth:900,margin:'0 auto',background:'#000',color:'#ffd700',padding:12,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <b>🇿🇦 CIVIC-CONNECT LIMPOPO</b><button onClick={()=>setPage('stats')} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,fontWeight:'bold'}}>📊 STATS</button>
+      </div>
+      <div style={{maxWidth:900,margin:'40px auto',textAlign:'center',background:'#fff',padding:40,borderRadius:16,border:'3px solid #000'}}>
+        <h1 style={{fontSize:48,margin:0}}>🇿🇦 CIVIC-CONNECT</h1>
+        <p>Report Issues • Track Status • Meet Government</p>
+        <button onClick={()=>setPage('login')} style={{marginTop:20,padding:'16px 40px',background:'#000',color:'#ffd700',border:0,borderRadius:12,fontSize:20,fontWeight:'bold',cursor:'pointer'}}>ENTER PLATFORM →</button>
+      </div>
+    </div>
+  )
+
+  if(page==='login') return (
+    <div style={{minHeight:'100vh',background:'#f5f5dc',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'#fff',padding:30,borderRadius:16,width:360,border:'3px solid #000'}}>
+        <h2 style={{textAlign:'center'}}>Login</h2>
+        <input value={idNum} onChange={e=>setIdNum(e.target.value)} placeholder="ID Number (13 digits)" style={{width:'100%',padding:12,margin:'8px 0',borderRadius:8,border:'1px solid #000'}}/>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Gov Email (gov only)" style={{width:'100%',padding:12,margin:'8px 0',borderRadius:8,border:'1px solid #000'}}/>
+        <input value={pass} onChange={e=>setPass(e.target.value)} placeholder="Gov Code (gov only)" type="password" style={{width:'100%',padding:12,margin:'8px 0',borderRadius:8,border:'1px solid #000'}}/>
+        <button onClick={loginGov} style={{width:'100%',padding:12,background:'#000',color:'#ffd700',border:0,borderRadius:8,marginTop:10,fontWeight:'bold'}}>GOV LOGIN</button>
+        <button onClick={loginCit} style={{width:'100%',padding:12,background:'#007a4d',color:'#fff',border:0,borderRadius:8,marginTop:10,fontWeight:'bold'}}>CITIZEN LOGIN</button>
+        <button onClick={()=>setPage('landing')} style={{width:'100%',marginTop:10,background:'none',border:0}}>← Back</button>
+      </div>
+    </div>
+  )
+
+  const StatBox=()=>{
+    const total=reports.length
+    const pending=reports.filter(r=>r.status==='pending').length
+    const prog=reports.filter(r=>r.status==='in_progress').length
+    const fixed=reports.filter(r=>r.status==='fixed').length
     return (
-      <div style={{fontFamily: 'system-ui', minHeight: '100vh', background: 'linear-gradient(135deg, #052e16, #16a34a)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', color: 'white', textAlign: 'center'}}>
-        <div>
-          <div style={{fontSize: '80px', marginBottom: '20px', animation: 'bounce 2s infinite'}}>🇿🇦</div>
-          <h1 style={{fontSize: '42px', fontWeight: '900', lineHeight: '1.1'}}>ZA • UBUNTU<br/>Civic-Connect</h1>
-          <p style={{marginTop: '16px', fontSize: '18px', opacity: 0.9, maxWidth: '400px', margin: '16px auto'}}>Where Citizens and Government build South Africa together. Ubuntu — I am because we are.</p>
-          
-          {/* THE ICON TO PRESS */}
-          <button onClick={()=>setPage("portals")} style={{marginTop: '32px', background: 'white', color: '#16a34a', border: 'none', width: '100px', height: '100px', borderRadius: '50%', fontSize: '48px', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontWeight: '900'}}>
-            →
-          </button>
-          <p style={{marginTop: '16px', fontSize: '13px', letterSpacing: '2px', opacity: 0.8}}>TAP ICON TO ENTER</p>
-          <p style={{marginTop: '40px', fontSize: '11px', opacity: 0.6}}>Mechaflow Dynamics • Centurion, ZA • {new Date().toLocaleDateString()}</p>
+      <div style={{background:'#fff',border:'3px solid #000',borderRadius:16,padding:20,margin:'20px auto',maxWidth:900}}>
+        <h2>📊 LIMPOPO STATS</h2>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10}}>
+          <div style={{background:'#000',color:'#ffd700',padding:15,borderRadius:10,textAlign:'center'}}><h3>{total}</h3><small>TOTAL</small></div>
+          <div style={{background:'#ff9800',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{pending}</h3><small>PENDING</small></div>
+          <div style={{background:'#2196f3',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{prog}</h3><small>IN PROGRESS</small></div>
+          <div style={{background:'#4caf50',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{fixed}</h3><small>FIXED</small></div>
         </div>
+        <button onClick={()=>setShowStats(false)} style={{marginTop:15,padding:'8px 16px'}}>Close</button>
       </div>
     )
   }
 
-  // --- 2. PORTALS PAGE (Government or Citizen) ---
-  if (page === "portals") {
-    return (
-      <div style={{fontFamily: 'system-ui', minHeight: '100vh', background: '#f8fafc', padding: '20px'}}>
-        <div style={{maxWidth: '900px', margin: '0 auto'}}>
-          <button onClick={()=>setPage("welcome")} style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', marginBottom: '20px'}}>← Back to Welcome</button>
-          <h2 style={{fontSize: '32px', fontWeight: '900', textAlign: 'center', marginTop: '20px'}}>Choose Your Portal</h2>
-          <p style={{textAlign: 'center', color: '#666', marginTop: '8px'}}>Select how you want to continue</p>
-          
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '32px'}}>
-            {/* CITIZEN PORTAL */}
-            <button onClick={()=>setPage("verify")} style={{background: 'white', border: '2px solid #16a34a', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left'}}>
-              <div style={{fontSize: '48px'}}>👤</div>
-              <h3 style={{fontSize: '20px', fontWeight: '800', marginTop: '12px'}}>Citizen Portal</h3>
-              <p style={{fontSize: '13px', color: '#555', marginTop: '8px'}}>Report issues, track status, meet government. Requires SA ID / Passport verification.</p>
-              <div style={{marginTop: '16px', background: '#16a34a', color: 'white', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: '700'}}>Enter as Citizen →</div>
-              <p style={{fontSize: '11px', color: '#666', marginTop: '8px'}}>📅 Date & Time auto-added • 🔒 ID Verified</p>
-            </button>
-
-            {/* GOVERNMENT PORTAL */}
-            <button onClick={()=>setPage("admin")} style={{background: '#111', border: '2px solid #111', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left', color: 'white'}}>
-              <div style={{fontSize: '48px'}}>🏛️</div>
-              <h3 style={{fontSize: '20px', fontWeight: '800', marginTop: '12px'}}>Government Portal</h3>
-              <p style={{fontSize: '13px', color: '#aaa', marginTop: '8px'}}>Manage all reports, update status, schedule meetings with citizens.</p>
-              <div style={{marginTop: '16px', background: 'white', color: 'black', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: '700'}}>Enter as Government →</div>
-              <p style={{fontSize: '11px', color: '#888', marginTop: '8px'}}>📊 Admin Dashboard • 📅 Meeting Scheduler</p>
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // --- 3A. VERIFY ID PAGE ---
-  if (page === "verify") {
-    return (
-      <div style={{fontFamily: 'system-ui', background: '#f8fafc', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-        <div style={{background: 'white', padding: '32px', borderRadius: '16px', maxWidth: '420px', width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'}}>
-          <button onClick={()=>setPage("portals")} style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', marginBottom: '16px'}}>← Portals</button>
-          <h1 style={{fontWeight: '900', fontSize: '20px', textAlign: 'center'}}>Citizen Verification</h1>
-          <div style={{marginTop: '16px', display: 'flex', gap: '8px'}}>
-            <button onClick={()=>setIdType("ID")} style={{flex: 1, padding: '10px', borderRadius: '8px', border: idType==="ID"?'2px solid #16a34a':'1px solid #ddd', background: idType==="ID"?'#dcfce7':'white', fontWeight: '700'}}>SA ID</button>
-            <button onClick={()=>setIdType("Passport")} style={{flex: 1, padding: '10px', borderRadius: '8px', border: idType==="Passport"?'2px solid #16a34a':'1px solid #ddd', background: idType==="Passport"?'#dcfce7':'white', fontWeight: '700'}}>Passport</button>
-          </div>
-          <input value={idInput} onChange={e=>setIdInput(e.target.value)} placeholder={idType==="ID"?"13-digit e.g. 9901015000087":"A12345678"} style={{width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', marginTop: '16px'}} />
-          <button onClick={handleVerify} style={{width: '100%', background: '#16a34a', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: '800', marginTop: '16px', cursor: 'pointer'}}>Verify & Continue →</button>
-        </div>
-      </div>
-    )
-  }
-
-  // --- 3B. MAIN APP (Citizen or Admin) ---
-  const isAdmin = page === "admin"
   return (
-    <div style={{fontFamily: 'system-ui', background: '#f8fafc', minHeight: '100vh'}}>
-      <div style={{background: 'white', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
-        <span style={{fontWeight: '800'}}>ZA • UBUNTU <span style={{color: '#16a34a'}}>Civic-Connect</span> {isAdmin ? '(GOV)' : '(Citizen)'}</span>
-        <div style={{display: 'flex', gap: '8px'}}>
-          <button onClick={()=>setPage("portals")} style={{background: '#eee', border: 'none', padding: '8px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px'}}>Portals</button>
-          <button onClick={()=>setPage("welcome")} style={{background: '#111', color: 'white', padding: '8px 12px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontSize: '12px'}}>Home</button>
-        </div>
-      </div>
-
-      <main style={{maxWidth: '900px', margin: '0 auto', padding: '24px'}}>
-        <div style={{background: isAdmin ? '#111' : 'linear-gradient(135deg, #16a34a, #15803d)', color: 'white', padding: '24px', borderRadius: '16px', marginBottom: '20px'}}>
-          <h2 style={{fontSize: '28px', fontWeight: '900'}}>{isAdmin ? 'Government Dashboard' : 'Citizen Dashboard'}</h2>
-          <p style={{fontSize: '12px', marginTop: '6px', opacity: 0.8}}>📅 {new Date().toLocaleString()} {verifiedID ? `• ID: ${verifiedID.substring(0,6)}****` : ''}</p>
+    <div style={{minHeight:'100vh',background:'#f5f5dc',padding:15,fontFamily:'sans-serif'}}>
+      <div style={{maxWidth:1000,margin:'0 auto'}}>
+        <div style={{background:'#000',color:'#ffd700',padding:12,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <b>🇿🇦 {user.role.toUpperCase()} • {user.id_hash.slice(0,8)} • {user.role==='citizen'?'8001015009087':email}</b>
+          <div><button onClick={()=>setShowStats(!showStats)} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold'}}>📊 STATS</button><button onClick={()=>{setUser(null);setPage('landing')}} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8}}>Logout</button></div>
         </div>
 
-        {!isAdmin && (
-          <div style={{background: 'white', padding: '16px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: '8px'}}>
-            <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Issue" style={{flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd'}} />
-            <input value={location} onChange={e=>setLocation(e.target.value)} placeholder="Location" style={{padding: '10px', borderRadius: '8px', border: '1px solid #ddd'}} />
-            <button onClick={addIssue} style={{background: '#16a34a', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700'}}>Report</button>
+        <div style={{background:'#000',color:'#fff',padding:10,borderRadius:10,marginTop:12,border:'2px solid #ffd700'}}>
+          <b>🔔 NOTIFICATIONS:</b>
+          <div style={{maxHeight:80,overflowY:'auto',marginTop:6}}>
+            {notifs.length===0?<small>No notifications</small>:notifs.map(n=><div key={n.id} style={{fontSize:12,borderBottom:'1px solid #333',padding:'3px 0'}}>• {n.message} — {new Date(n.created_at).toLocaleString()}</div>)}
+          </div>
+        </div>
+
+        {showStats && <StatBox/>}
+
+        {user.role==='citizen' && myMeetings.length>0 && (
+          <div style={{background:'#e3f2fd',border:'2px solid #2196f3',borderRadius:12,padding:12,marginTop:12}}>
+            <b>📅 MEETINGS SCHEDULED FOR YOU:</b>
+            {myMeetings.map(m=><div key={m.id} style={{background:'#fff',padding:8,borderRadius:8,marginTop:6}}>📍 {m.location} — 📅 {m.date} — Report {m.report_id.slice(0,6)}</div>)}
           </div>
         )}
 
-        <div style={{display: 'grid', gap: '12px'}}>
-          {issues.map(issue=>(
-            <div key={issue.id} style={{background: 'white', padding: '14px', borderRadius: '10px', borderLeft: `5px solid ${issue.status==='Fixed'?'#16a34a':issue.status==='In Progress'?'#f59e0b':'#3b82f6'}`}}>
-              <div style={{display: 'flex', justifyContent: 'space-between'}}><b>{issue.title}</b><span style={{fontSize: '11px', background: '#eee', padding: '4px 8px', borderRadius: '10px'}}>{issue.status}</span></div>
-              <p style={{fontSize: '12px', color: '#555'}}>📍{issue.location} • {issue.date}</p>
-              <div style={{display: 'flex', gap: '4px', marginTop: '8px', fontSize: '10px'}}><span style={{background: '#111', color: 'white', padding: '3px 6px', borderRadius: '4px'}}>Reported</span>→<span style={{background: issue.status!=='Reported'?'#111':'#eee', color: issue.status!=='Reported'?'white':'#666', padding: '3px 6px', borderRadius: '4px'}}>In Progress</span>→<span style={{background: issue.status==='Fixed'?'#16a34a':'#eee', color: issue.status==='Fixed'?'white':'#666', padding: '3px 6px', borderRadius: '4px'}}>Fixed</span></div>
-              {issue.meeting && <div style={{marginTop: '8px', background: '#fffbeb', padding: '8px', borderRadius: '8px', fontSize: '12px', border: '1px dashed #f59e0b'}}>🏛️ Meeting: {issue.meeting.date} {issue.meeting.time} @ {issue.meeting.place}</div>}
-              {isAdmin && <button onClick={()=>setShowMeetingModal(issue.id)} style={{marginTop: '8px', fontSize: '12px', background: '#111', color: 'white', padding: '6px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer'}}>📅 Schedule Meeting</button>}
+        <div style={{display:'flex',gap:10,marginTop:12,flexWrap:'wrap'}}>
+          <button onClick={()=>setFilter('all')} style={{padding:'8px 12px',background:filter==='all'?'#000':'#fff',color:filter==='all'?'#ffd700':'#000',border:'1px solid #000',borderRadius:8}}>All</button>
+          <button onClick={()=>setFilter('pending')} style={{padding:'8px 12px',background:'#ff9800',color:'#fff',border:0,borderRadius:8}}>Pending</button>
+          <button onClick={()=>setFilter('in_progress')} style={{padding:'8px 12px',background:'#2196f3',color:'#fff',border:0,borderRadius:8}}>In Progress</button>
+          <button onClick={()=>setFilter('fixed')} style={{padding:'8px 12px',background:'#4caf50',color:'#fff',border:0,borderRadius:8}}>Fixed</button>
+          <button onClick={()=>setPage('report')} style={{marginLeft:'auto',padding:'8px 16px',background:'#007a4d',color:'#fff',border:0,borderRadius:8,fontWeight:'bold'}}>+ NEW REPORT</button>
+        </div>
+
+        {page==='report' && (
+          <div style={{background:'#fff',padding:20,borderRadius:12,border:'3px solid #000',marginTop:15}}>
+            <h3>New Report</h3>
+            <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}><option>Pothole</option><option>Water</option><option>Electricity</option><option>Waste</option><option>Road</option></select>
+            <select value={form.district} onChange={e=>setForm({...form,district:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}><option>Capricorn</option><option>Mopani</option><option>Vhembe</option><option>Waterberg</option><option>Sekhukhune</option></select>
+            <textarea value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})} placeholder="Description..." style={{width:'100%',padding:10,margin:'6px 0',height:80}}/>
+            <input value={form.lat} onChange={e=>setForm({...form,lat:e.target.value})} placeholder="Latitude (optional)" style={{width:'48%',padding:10,marginRight:'4%'}}/>
+            <input value={form.lng} onChange={e=>setForm({...form,lng:e.target.value})} placeholder="Longitude (optional)" style={{width:'48%',padding:10}}/>
+            <button onClick={submitReport} style={{width:'100%',padding:12,background:'#000',color:'#ffd700',border:0,borderRadius:8,marginTop:10,fontWeight:'bold'}}>SUBMIT REPORT</button>
+            <button onClick={()=>setPage('citizen')} style={{width:'100%',marginTop:8,background:'none',border:0}}>Cancel</button>
+          </div>
+        )}
+
+        <div style={{marginTop:15,display:'grid',gap:12}}>
+          {filtered.map(r=>(
+            <div key={r.id} style={{background:'#fff',padding:15,borderRadius:12,borderLeft:`8px solid ${r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800'}`}}>
+              <div style={{display:'flex',justifyContent:'space-between'}}><b>{r.type} • {r.district}</b><span style={{padding:'4px 10px',borderRadius:20,fontSize:12,background:r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800',color:'#fff'}}>{r.status.toUpperCase()}</span></div>
+              <p style={{margin:'8px 0'}}>{r.description}</p>
+              <small>{new Date(r.created_at).toLocaleString()} • #{r.id.slice(0,6)}</small>
+              {user.role==='gov' && (
+                <div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button onClick={()=>updateStatus(r.id,'in_progress')} style={{padding:'6px 12px',background:'#2196f3',color:'#fff',border:0,borderRadius:6}}>⏳ IN PROGRESS</button>
+                  <button onClick={()=>updateStatus(r.id,'fixed')} style={{padding:'6px 12px',background:'#4caf50',color:'#fff',border:0,borderRadius:6}}>✅ FIXED</button>
+                  <button onClick={()=>setMeetForm(r.id)} style={{padding:'6px 12px',background:'#000',color:'#ffd700',border:0,borderRadius:6}}>📅 SCHEDULE MEETING</button>
+                </div>
+              )}
+              {meetForm===r.id && (
+                <div style={{marginTop:10,background:'#f5f5f5',padding:10,borderRadius:8}}>
+                  <input value={meetDate} onChange={e=>setMeetDate(e.target.value)} type="date" style={{padding:8,marginRight:8}}/><input value={meetLoc} onChange={e=>setMeetLoc(e.target.value)} placeholder="Location e.g. Polokwane Civic Centre" style={{padding:8,width:220}}/>
+                  <button onClick={scheduleMeeting} style={{padding:'8px 12px',background:'#000',color:'#ffd700',border:0,borderRadius:6,marginLeft:8}}>Confirm</button><button onClick={()=>setMeetForm(null)} style={{marginLeft:8,background:'none',border:0}}>Cancel</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
-
-        {showMeetingModal && (
-          <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-            <div style={{background: 'white', padding: '20px', borderRadius: '12px', width: '100%', maxWidth: '350px'}}>
-              <h3 style={{fontWeight: '800'}}>Schedule Meeting</h3>
-              <input type="date" value={meetingDate} onChange={e=>setMeetingDate(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '10px'}} />
-              <input type="time" value={meetingTime} onChange={e=>setMeetingTime(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '8px'}} />
-              <input value={meetingPlace} onChange={e=>setMeetingPlace(e.target.value)} style={{width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', marginTop: '8px'}} />
-              <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-                <button onClick={()=>scheduleMeeting(showMeetingModal)} style={{flex: 1, background: '#16a34a', color: 'white', padding: '10px', borderRadius: '8px', border: 'none'}}>Send</button>
-                <button onClick={()=>setShowMeetingModal(null)} style={{flex: 1, background: '#eee', padding: '10px', borderRadius: '8px', border: 'none'}}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+      </div>
     </div>
   )
 }
