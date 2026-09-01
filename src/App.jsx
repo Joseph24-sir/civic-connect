@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase, hashID } from './supabase.js'
+import UserProfile from './components/UserProfile.jsx'
+import ReportComments from './components/ReportComments.jsx'
+import ReportMap from './components/ReportMap.jsx'
+import AnalyticsDashboard from './components/AnalyticsDashboard.jsx'
+import AdvancedFilters from './components/AdvancedFilters.jsx'
+import AIChat from './components/AIChat.jsx'
+import NotificationBell from './components/NotificationBell.jsx'
 
 export default function App(){
   const [page,setPage]=useState('landing')
@@ -10,11 +17,14 @@ export default function App(){
   const [email,setEmail]=useState('')
   const [pass,setPass]=useState('')
   const [reports,setReports]=useState([])
+  const [filteredReports,setFilteredReports]=useState([])
   const [notifs,setNotifs]=useState([])
   const [meetings,setMeetings]=useState([])
   const [filter,setFilter]=useState('all')
   const [showStats,setShowStats]=useState(false)
   const [showProfile,setShowProfile]=useState(false)
+  const [showAIChat,setShowAIChat]=useState(false)
+  const [selectedReport,setSelectedReport]=useState(null)
   const [meetForm,setMeetForm]=useState(null)
   const [meetDate,setMeetDate]=useState('')
   const [meetLoc,setMeetLoc]=useState('')
@@ -174,16 +184,24 @@ export default function App(){
       <div style={{maxWidth:1000,margin:'0 auto'}}>
         <div style={{background:'#000',color:'#ffd700',padding:12,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <b>🇿🇦 {(user?.role||'').toUpperCase()} • Verified • Secure • Ubuntu</b>
-          <div><button onClick={()=>setShowProfile(!showProfile)} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold',cursor:'pointer'}}>🔒 My Profile</button><button onClick={()=>setShowStats(!showStats)} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold',cursor:'pointer'}}>📊 STATS</button><button onClick={()=>{setUser(null);setPage('landing')}} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8,cursor:'pointer'}}>Logout</button></div>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <NotificationBell user={user} />
+            <button onClick={()=>setShowAIChat(!showAIChat)} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>🤖 Chat</button>
+            <button onClick={()=>setShowProfile(!showProfile)} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold',cursor:'pointer'}}>🔒 My Profile</button>
+            <button onClick={()=>setShowStats(!showStats)} style={{background:'#ffd700',border:0,padding:'6px 12px',borderRadius:8,marginRight:8,fontWeight:'bold',cursor:'pointer'}}>📊 STATS</button>
+            <button onClick={()=>{setUser(null);setPage('landing')}} style={{background:'#fff',border:0,padding:'6px 12px',borderRadius:8,cursor:'pointer'}}>Logout</button>
+          </div>
         </div>
 
         <div style={{background:'#000',color:'#fff',padding:10,borderRadius:10,marginTop:12,border:'2px solid #ffd700'}}><b>🔔 NOTIFICATIONS:</b><div style={{maxHeight:80,overflowY:'auto',marginTop:6}}>{notifs.map(n=><div key={n.id} style={{fontSize:12,borderBottom:'1px solid #333',padding:'3px 0'}}>• {n.message}</div>)}</div></div>
 
-        {showProfile && <div style={{background:'#fff',border:'3px solid #000',borderRadius:16,padding:20,margin:'20px auto',maxWidth:900}}><h2>🔒 My Profile - Owner Only</h2><p>Private ID: <span style={{background:'#000',color:'#000',padding:'4px 10px',borderRadius:6,cursor:'pointer'}} onClick={e=>e.target.style.color='#ffd700'}>{user?.secureId}</span> (click to reveal)</p><button onClick={()=>setShowProfile(false)} style={{padding:'8px 16px',background:'#000',color:'#ffd700',border:0,borderRadius:8,cursor:'pointer'}}>Close</button></div>}
+        {showProfile && <UserProfile user={user} onBack={()=>setShowProfile(false)} />}
 
-        {showStats && <div style={{background:'#fff',border:'3px solid #000',borderRadius:16,padding:20,margin:'20px auto',maxWidth:900}}><h2>📊 Stats</h2><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10}}><div style={{background:'#000',color:'#ffd700',padding:15,borderRadius:10,textAlign:'center'}}><h3>{reports.length}</h3><small>TOTAL</small></div><div style={{background:'#ff9800',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{reports.filter(r=>r.status==='pending').length}</h3><small>PENDING</small></div><div style={{background:'#2196f3',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{reports.filter(r=>r.status==='in_progress').length}</h3><small>PROGRESS</small></div><div style={{background:'#4caf50',color:'#fff',padding:15,borderRadius:10,textAlign:'center'}}><h3>{reports.filter(r=>r.status==='fixed').length}</h3><small>FIXED</small></div></div><button onClick={()=>setShowStats(false)} style={{marginTop:15}}>Close</button></div>}
+        {showStats && <AnalyticsDashboard reports={reports} />}
 
         <div style={{display:'flex',gap:10,marginTop:12,flexWrap:'wrap'}}><button onClick={()=>setFilter('all')} style={{padding:'8px 12px',background:filter==='all'?'#000':'#fff',color:filter==='all'?'#ffd700':'#000',border:'1px solid #000',borderRadius:8,cursor:'pointer'}}>All</button><button onClick={()=>setFilter('pending')} style={{padding:'8px 12px',background:'#ff9800',color:'#fff',border:0,borderRadius:8,cursor:'pointer'}}>Pending</button><button onClick={()=>setFilter('in_progress')} style={{padding:'8px 12px',background:'#2196f3',color:'#fff',border:0,borderRadius:8,cursor:'pointer'}}>In Progress</button><button onClick={()=>setFilter('fixed')} style={{padding:'8px 12px',background:'#4caf50',color:'#fff',border:0,borderRadius:8,cursor:'pointer'}}>Fixed</button><button onClick={()=>{setPage('report'); window.scrollTo(0,0)}} style={{marginLeft:'auto',padding:'10px 18px',background:'#007a4d',color:'#fff',border:0,borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>+ NEW REPORT</button></div>
+
+        <AdvancedFilters reports={reports} categories={categories} municipalities={municipalities} onFilterChange={setFilteredReports} />
 
         {page==='report' && (
           <div style={{background:'#fff',padding:20,borderRadius:16,border:'3px solid #000',marginTop:15}}>
@@ -211,18 +229,27 @@ export default function App(){
           </div>
         )}
 
+        <div style={{marginTop:20,background:'#fff',padding:15,borderRadius:12,boxShadow:'0 2px 4px rgba(0,0,0,0.1)'}}>
+          <h3 style={{marginTop:0}}>📍 Report Map</h3>
+          <ReportMap reports={filteredReports.length > 0 ? filteredReports : myReports} selectedReport={selectedReport} onSelectReport={setSelectedReport} />
+        </div>
+
         <div style={{marginTop:15,display:'grid',gap:12}}>
-          {filtered.map(r=>(
-            <div key={r.id} style={{background:'#fff',padding:15,borderRadius:12,borderLeft:`8px solid ${r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800'}`}}>
+          {(filteredReports.length > 0 ? filteredReports : myReports).map(r=>(
+            <div key={r.id} onClick={() => setSelectedReport(r)} style={{background:'#fff',padding:15,borderRadius:12,borderLeft:`8px solid ${r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800'}`,cursor:'pointer',transition:'transform 0.2s',transform:selectedReport?.id===r.id?'scale(1.02)':'scale(1)'}}>
               <div style={{display:'flex',justifyContent:'space-between'}}><b>{r.type}</b><span style={{padding:'4px 10px',borderRadius:20,fontSize:11,background:r.status==='fixed'?'#4caf50':r.status==='in_progress'?'#2196f3':'#ff9800',color:'#fff'}}>{(r.status||'').toUpperCase()}</span></div>
               <p style={{margin:'8px 0',fontSize:13}}>{r.description?.replace(/\[.*?\] /g,'')}</p>
               <small>{r.created_at? new Date(r.created_at).toLocaleString():''} • #{(r.id||'').slice(0,6)}</small>
               {user.role==='gov' && (<div style={{marginTop:10,display:'flex',gap:8}}><button onClick={()=>updateStatus(r.id,'in_progress')} style={{padding:'6px 12px',background:'#2196f3',color:'#fff',border:0,borderRadius:6,cursor:'pointer'}}>IN PROGRESS</button><button onClick={()=>updateStatus(r.id,'fixed')} style={{padding:'6px 12px',background:'#4caf50',color:'#fff',border:0,borderRadius:6,cursor:'pointer'}}>FIXED</button><button onClick={()=>setMeetForm(r.id)} style={{padding:'6px 12px',background:'#000',color:'#ffd700',border:0,borderRadius:6,cursor:'pointer'}}>MEETING</button></div>)}
               {meetForm===r.id && (<div style={{marginTop:10,background:'#f5f5f5',padding:10,borderRadius:8}}><input value={meetDate} onChange={e=>setMeetDate(e.target.value)} type="date" style={{padding:8,marginRight:8}}/><input value={meetLoc} onChange={e=>setMeetLoc(e.target.value)} placeholder="Location" style={{padding:8,width:220}}/><button onClick={scheduleMeeting} style={{padding:'8px 12px',background:'#000',color:'#ffd700',border:0,borderRadius:6,marginLeft:8,cursor:'pointer'}}>Confirm</button></div>)}
+              
+              {selectedReport?.id === r.id && <ReportComments reportId={r.id} user={user} />}
             </div>
           ))}
         </div>
       </div>
+
+      <AIChat isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
   )
 }
